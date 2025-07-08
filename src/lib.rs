@@ -8,9 +8,3 @@ pub mod viewed_date;
 
 #[cfg(test)]
 pub mod rstest_utils;
-
-// #[macro_use]
-// extern crate derive_getters;
-
-// #[macro_use]
-// extern crate derive_builder;

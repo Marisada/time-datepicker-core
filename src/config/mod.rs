@@ -2,7 +2,7 @@ pub mod date_constraints;
 
 use derive_builder::Builder;
 use derive_getters::Getters;
-use time::{Date, Time};
+use time::{Date, Time, OffsetDateTime, macros::offset};
 
 use self::date_constraints::HasDateConstraints;
 
@@ -64,6 +64,17 @@ impl<T: HasDateConstraints + std::default::Default + Clone> PickerConfigBuilder<
             }
         }
         Ok(())
+    }
+}
+
+impl<T: HasDateConstraints + std::default::Default + Clone> PickerConfig<T> {
+    pub fn guess_allowed_year_month(&self) -> Date {
+        if let Some(init_date) = self.initial_date {
+            return init_date;
+        }
+        // if none of the above constraints matched use the current_date
+        let ts_milli = js_sys::Date::now() as i64;
+        OffsetDateTime::from_unix_timestamp(ts_milli.saturating_div(1_000)).unwrap().to_offset(offset!(+7)).date()
     }
 }
 
@@ -198,5 +209,16 @@ mod tests {
         let config =
             create_picker_config_with_mocked_date_constraints(builder, date_constraints_mock);
         assert!(config.is_year_group_forbidden(year));
+    }
+
+    #[test]
+    fn guess_allowed_year_month_with_initial_date() {
+        let initial_date = Date::from_calendar_date(2020, Month::March, 24).expect("invalid date");
+        let config = PickerConfigBuilder::<MockHasDateConstraints>::default()
+            .initial_date(initial_date)
+            .build()
+            .unwrap();
+        let expected = initial_date;
+        assert_eq!(expected, config.guess_allowed_year_month());
     }
 }
