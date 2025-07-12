@@ -11,7 +11,7 @@ pub enum DialogViewType {
 }
 
 impl DialogViewType {
-    /// returns the larger view type, if such exists, otherwise returns None
+    /// Returns the larger view type, if such exists, otherwise returns None
     pub const fn larger_type(&self) -> Option<Self> {
         match self {
             DialogViewType::Years => None,

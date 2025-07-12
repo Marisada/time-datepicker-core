@@ -2,7 +2,6 @@
 
 pub mod config;
 pub mod dialog_view_type;
-pub mod style_names;
 pub mod utils;
 pub mod viewed_date;
 

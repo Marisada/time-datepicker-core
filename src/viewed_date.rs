@@ -1,6 +1,6 @@
 use std::ops::RangeInclusive;
 
-use time::{Date, Duration};
+use time::{Duration, PrimitiveDateTime};
 
 use crate::{dialog_view_type::DialogViewType, utils::from_ymd};
 
@@ -12,42 +12,44 @@ pub type DayNumber = u8;
 
 /// Trait used for the variable that describes the currently viewed datepicker.
 pub trait ViewedDate {
-    /// returns a date with the first day of the previous month
-    fn previous_month(&self) -> Date;
+    /// Returns a datetime with the first day of the previous month
+    fn previous_month(&self) -> PrimitiveDateTime;
 
-    /// returns a date with the first day of the next month
-    fn next_month(&self) -> Date;
+    /// Returns a datetime with the first day of the next month
+    fn next_month(&self) -> PrimitiveDateTime;
 
-    /// returns a date with the first day of the previous year
-    fn previous_year(&self) -> Date;
+    /// Returns a datetime with the first day of the previous year
+    fn previous_year(&self) -> PrimitiveDateTime;
 
-    /// returns a date with the first day of the next year
-    fn next_year(&self) -> Date;
+    /// Returns a datetime with the first day of the next year
+    fn next_year(&self) -> PrimitiveDateTime;
 
-    /// returns a date with the first day of the last year of the previous year group
-    fn previous_year_group(&self) -> Date;
+    /// Returns a datetime with the first day of the last year of the previous year group
+    fn previous_year_group(&self) -> PrimitiveDateTime;
 
-    /// returns a date with the first day of the first year of the next year group
-    fn next_year_group(&self) -> Date;
+    /// Returns a datetime with the first day of the first year of the next year group
+    fn next_year_group(&self) -> PrimitiveDateTime;
 
-    /// returns a date with the first day of the currently set month
-    fn first_day_of_month(&self) -> Date;
-
-    // wait for std::iter::Step to Stabilized
-    // https://docs.rs/rustc-std-workspace-std/latest/std/iter/trait.Step.html
-    fn dates_in_month(&self) -> Vec<Date>;
+    /// Returns a datetime with the first day of the currently set month
+    fn first_day_of_month(&self) -> PrimitiveDateTime;
 
     // wait for std::iter::Step to Stabilized
     // https://docs.rs/rustc-std-workspace-std/latest/std/iter/trait.Step.html
-    /// dates start with Self as nearly-ended-of-month Sunday as `first day`, fill offset and next whole month in 7xn row of calendar 
-    fn dates_fill_calendar(&self, offset: u8) -> Vec<Date>;
+    /// Return all datetimes in the currently set month
+    fn dates_in_month(&self) -> Vec<PrimitiveDateTime>;
 
-    /// returns true if the currently `ViewedDate` with the given `DialogViewType` includes the given date
-    fn contains(&self, dialog_view_type: &DialogViewType, date: &Date) -> bool;
+    // wait for std::iter::Step to Stabilized
+    // https://docs.rs/rustc-std-workspace-std/latest/std/iter/trait.Step.html
+    /// Return datetimes start with `Sunday before Self` as `first day`,
+    /// fill 7 x n row of calendar with the whole currently set month insided
+    fn dates_fill_calendar(&self, offset: u8) -> Vec<PrimitiveDateTime>;
+
+    /// Returns true if the currently `ViewedDate` with the given `DialogViewType` includes the given datetime
+    fn contains(&self, dialog_view_type: &DialogViewType, date: &PrimitiveDateTime) -> bool;
 }
 
-impl ViewedDate for Date {
-    fn previous_month(&self) -> Date {
+impl ViewedDate for PrimitiveDateTime {
+    fn previous_month(&self) -> PrimitiveDateTime {
         let mut year = self.year();
         let mut month = self.month() as u8;
         if month == 1 {
@@ -56,10 +58,10 @@ impl ViewedDate for Date {
         } else {
             month -= 1;
         }
-        from_ymd(year, month, 1)
+        PrimitiveDateTime::new(from_ymd(year, month, 1), self.time())
     }
 
-    fn next_month(&self) -> Date {
+    fn next_month(&self) -> PrimitiveDateTime {
         let mut year = self.year();
         let mut month = self.month() as u8;
         if month == 12 {
@@ -68,56 +70,64 @@ impl ViewedDate for Date {
         } else {
             month += 1;
         }
-        from_ymd(year, month, 1)
+        PrimitiveDateTime::new(from_ymd(year, month, 1), self.time())
     }
 
-    fn previous_year(&self) -> Date {
-        from_ymd(self.year() - 1, 1, 1)
+    fn previous_year(&self) -> PrimitiveDateTime {
+        PrimitiveDateTime::new(from_ymd(self.year() - 1, 1, 1), self.time())
     }
 
-    fn next_year(&self) -> Date {
-        from_ymd(self.year() + 1, 1, 1)
+    fn next_year(&self) -> PrimitiveDateTime {
+        PrimitiveDateTime::new(from_ymd(self.year() + 1, 1, 1), self.time())
     }
 
-    fn previous_year_group(&self) -> Date {
-        from_ymd(year_group_start(self.year()) - 1, 1, 1)
+    fn previous_year_group(&self) -> PrimitiveDateTime {
+        PrimitiveDateTime::new(
+            from_ymd(year_group_start(self.year()) - 1, 1, 1),
+            self.time(),
+        )
     }
 
-    fn next_year_group(&self) -> Date {
-        from_ymd(year_group_end(self.year()) + 1, 1, 1)
+    fn next_year_group(&self) -> PrimitiveDateTime {
+        PrimitiveDateTime::new(from_ymd(year_group_end(self.year()) + 1, 1, 1), self.time())
     }
 
-    fn first_day_of_month(&self) -> Date {
-        from_ymd(self.year(), self.month() as u8, 1)
+    fn first_day_of_month(&self) -> PrimitiveDateTime {
+        PrimitiveDateTime::new(from_ymd(self.year(), self.month() as u8, 1), self.time())
     }
 
     // wait for std::iter::Step to Stabilized
     // https://docs.rs/rustc-std-workspace-std/latest/std/iter/trait.Step.html
-    fn dates_in_month(&self) -> Vec<Date> {
+    fn dates_in_month(&self) -> Vec<Self> {
         let mut dates = Vec::new();
         let mut d = self.first_day_of_month();
         while d < self.next_month() {
             dates.push(d);
-            d = d + Duration::new(24 * 60 * 60, 0);
+            d = d + Duration::days(1);
         }
         dates
     }
 
     // wait for std::iter::Step to Stabilized
     // https://docs.rs/rustc-std-workspace-std/latest/std/iter/trait.Step.html
-    /// dates start with Self as nearly-ended-of-month Sunday as `first day`, fill offset and next whole month in 7xn row of calendar 
-    fn dates_fill_calendar(&self, offset: u8) -> Vec<Date> {
-        let next_month = if offset == 0 {*self} else {self.next_month()};
+    fn dates_fill_calendar(&self, offset: u8) -> Vec<Self> {
+        let next_month = if offset == 0 {
+            *self
+        } else {
+            self.next_month()
+        };
         let next_month_days = next_month.month().length(next_month.year());
         let total_days = (((offset + next_month_days) / 7) * 7) + 7;
-        (0..total_days).map(|u| *self + Duration::new(u as i64 * 24 * 60 * 60, 0)).collect()
+        (0..total_days)
+            .map(|u| *self + Duration::days(u as i64))
+            .collect()
     }
 
-    fn contains(&self, dialog_view_type: &DialogViewType, date: &Date) -> bool {
+    fn contains(&self, dialog_view_type: &DialogViewType, date: &Self) -> bool {
         match dialog_view_type {
             DialogViewType::Years => self.year() == date.year(),
             DialogViewType::Months => self.year() == date.year() && self.month() == date.month(),
-            DialogViewType::Days => self == date,
+            DialogViewType::Days => self.date() == date.date(),
         }
     }
 }
@@ -136,97 +146,97 @@ pub fn year_group_range(year: YearNumber) -> RangeInclusive<YearNumber> {
 
 #[cfg(test)]
 mod tests {
-    use crate::rstest_utils::create_date;
+    use crate::rstest_utils::create_datetime;
     use rstest::*;
 
     use super::*;
 
     #[rstest(
         expected, given, //
-        case::from_january(create_date(1989, 12, 1), create_date(1990, 1, 15)),
-        case::not_from_january(create_date(1990, 2, 1), create_date(1990, 3, 22)),
+        case::from_january(create_datetime(1989, 12, 1, 0, 0), create_datetime(1990, 1, 15, 0, 0)),
+        case::not_from_january(create_datetime(1990, 2, 1, 0, 0), create_datetime(1990, 3, 22, 0, 0)),
     )]
-    fn previous_month(expected: Date, given: Date) {
+    fn previous_month(expected: PrimitiveDateTime, given: PrimitiveDateTime) {
         assert_eq!(expected, given.previous_month());
     }
 
     #[rstest(
         expected, given, //
-        case::from_december(create_date(1991, 1, 1), create_date(1990, 12, 22)),
-        case::not_from_december(create_date(1990, 4, 1), create_date(1990, 3, 15)),
+        case::from_december(create_datetime(1991, 1, 1, 0, 0), create_datetime(1990, 12, 22, 0, 0)),
+        case::not_from_december(create_datetime(1990, 4, 1, 0, 0), create_datetime(1990, 3, 15, 0, 0)),
     )]
-    fn next_month(expected: Date, given: Date) {
+    fn next_month(expected: PrimitiveDateTime, given: PrimitiveDateTime) {
         assert_eq!(expected, given.next_month());
     }
 
     #[rstest(
         expected, given, //
-        case(create_date(1989, 1, 1), create_date(1990, 12, 25)),
-        case(create_date(1990, 1, 1), create_date(1991, 3, 22)),
+        case(create_datetime(1989, 1, 1, 0, 0), create_datetime(1990, 12, 25, 0, 0)),
+        case(create_datetime(1990, 1, 1, 0, 0), create_datetime(1991, 3, 22, 0, 0)),
     )]
-    fn previous_year(expected: Date, given: Date) {
+    fn previous_year(expected: PrimitiveDateTime, given: PrimitiveDateTime) {
         assert_eq!(expected, given.previous_year());
     }
 
     #[rstest(
         expected, given, //
-        case(create_date(1991, 1, 1), create_date(1990, 12, 25)),
-        case(create_date(1992, 1, 1), create_date(1991, 3, 22)),
+        case(create_datetime(1991, 1, 1, 0, 0), create_datetime(1990, 12, 25, 0, 0)),
+        case(create_datetime(1992, 1, 1, 0, 0), create_datetime(1991, 3, 22, 0, 0)),
     )]
-    fn next_year(expected: Date, given: Date) {
+    fn next_year(expected: PrimitiveDateTime, given: PrimitiveDateTime) {
         assert_eq!(expected, given.next_year());
     }
 
     #[rstest(
         expected, given, //
-        case::in_middle(create_date(1979, 1, 1), create_date(1990, 1, 1)),
-        case::at_start(create_date(1979, 1, 1), create_date(1980, 3, 20)),
-        case::at_end(create_date(1979, 1, 1), create_date(1999, 7, 24)),
-        case::next_group(create_date(1999, 1, 1), create_date(2000, 8, 22)),
+        case::in_middle(create_datetime(1979, 1, 1, 0, 0), create_datetime(1990, 1, 1, 0, 0)),
+        case::at_start(create_datetime(1979, 1, 1, 0, 0), create_datetime(1980, 3, 20, 0, 0)),
+        case::at_end(create_datetime(1979, 1, 1, 0, 0), create_datetime(1999, 7, 24, 0, 0)),
+        case::next_group(create_datetime(1999, 1, 1, 0, 0), create_datetime(2000, 8, 22, 0, 0)),
     )]
-    fn previous_year_group(expected: Date, given: Date) {
+    fn previous_year_group(expected: PrimitiveDateTime, given: PrimitiveDateTime) {
         assert_eq!(expected, given.previous_year_group());
     }
 
     #[rstest(
         expected, given, //
-        case::in_middle(create_date(2000, 1, 1), create_date(1990, 1, 1)),
-        case::at_start(create_date(2000, 1, 1), create_date(1980, 3, 20)),
-        case::at_end(create_date(2000, 1, 1), create_date(1999, 7, 24)),
-        case::next_group(create_date(2020, 1, 1), create_date(2000, 8, 22)),
+        case::in_middle(create_datetime(2000, 1, 1, 0, 0), create_datetime(1990, 1, 1, 0, 0)),
+        case::at_start(create_datetime(2000, 1, 1, 0, 0), create_datetime(1980, 3, 20, 0, 0)),
+        case::at_end(create_datetime(2000, 1, 1, 0, 0), create_datetime(1999, 7, 24, 0, 0)),
+        case::next_group(create_datetime(2020, 1, 1, 0, 0), create_datetime(2000, 8, 22, 0, 0)),
     )]
-    fn next_year_group(expected: Date, given: Date) {
+    fn next_year_group(expected: PrimitiveDateTime, given: PrimitiveDateTime) {
         assert_eq!(expected, given.next_year_group());
     }
 
     #[rstest(
         expected, given, //
-        case(create_date(1990, 12, 1), create_date(1990, 12, 15)),
-        case(create_date(1991, 3, 1), create_date(1991, 3, 24)),
+        case(create_datetime(1990, 12, 1, 0, 0), create_datetime(1990, 12, 15, 0, 0)),
+        case(create_datetime(1991, 3, 1, 0, 0), create_datetime(1991, 3, 24, 0, 0)),
     )]
-    fn first_day_of_month(expected: Date, given: Date) {
+    fn first_day_of_month(expected: PrimitiveDateTime, given: PrimitiveDateTime) {
         assert_eq!(expected, given.first_day_of_month());
     }
 
     #[rstest(
         expected, viewed_date, dialog_view_type, tested_date, //
-        case::years_different(false, create_date(1990, 1, 1), DialogViewType::Years, create_date(1989, 1, 1)),
-        case::years_equal(true, create_date(1990, 1, 1), DialogViewType::Years, create_date(1990, 5, 15)),
+        case::years_different(false, create_datetime(1990, 1, 1, 0, 0), DialogViewType::Years, create_datetime(1989, 1, 1, 0, 0)),
+        case::years_equal(true, create_datetime(1990, 1, 1, 0, 0), DialogViewType::Years, create_datetime(1990, 5, 15, 0, 0)),
 
-        case::months_different_year(false, create_date(1990, 3, 1), DialogViewType::Months, create_date(1989, 3, 1)),
-        case::months_different_month(false, create_date(1990, 3, 1), DialogViewType::Months, create_date(1990, 4, 1)),
-        case::months_equal(true, create_date(1990, 3, 1), DialogViewType::Months, create_date(1990, 3, 15)),
+        case::months_different_year(false, create_datetime(1990, 3, 1, 0, 0), DialogViewType::Months, create_datetime(1989, 3, 1, 0, 0)),
+        case::months_different_month(false, create_datetime(1990, 3, 1, 0, 0), DialogViewType::Months, create_datetime(1990, 4, 1, 0, 0)),
+        case::months_equal(true, create_datetime(1990, 3, 1, 0, 0), DialogViewType::Months, create_datetime(1990, 3, 15, 0, 0)),
 
-        case::days_different_year(false, create_date(1990, 3, 1), DialogViewType::Days, create_date(1989, 3, 1)),
-        case::days_different_month(false, create_date(1990, 3, 1), DialogViewType::Days, create_date(1990, 4, 1)),
-        case::days_different_day(false, create_date(1990, 3, 1), DialogViewType::Days, create_date(1990, 3, 15)),
-        case::months_equal(true, create_date(1990, 3, 1), DialogViewType::Months, create_date(1990, 3, 15)),
+        case::days_different_year(false, create_datetime(1990, 3, 1, 0, 0), DialogViewType::Days, create_datetime(1989, 3, 1, 0, 0)),
+        case::days_different_month(false, create_datetime(1990, 3, 1, 0, 0), DialogViewType::Days, create_datetime(1990, 4, 1, 0, 0)),
+        case::days_different_day(false, create_datetime(1990, 3, 1, 0, 0), DialogViewType::Days, create_datetime(1990, 3, 15, 0, 0)),
+        case::months_equal(true, create_datetime(1990, 3, 1, 0, 0), DialogViewType::Months, create_datetime(1990, 3, 15, 0, 0)),
     )]
     fn contains(
         expected: bool,
-        viewed_date: Date,
+        viewed_date: PrimitiveDateTime,
         dialog_view_type: DialogViewType,
-        tested_date: Date,
+        tested_date: PrimitiveDateTime,
     ) {
         assert_eq!(
             expected,

@@ -1,10 +1,10 @@
 use derive_builder::Builder;
-use time::{Date, Month, Weekday};
 use std::collections::HashSet;
+use time::{Date, Month, PrimitiveDateTime, Weekday};
 
 use crate::{
-    utils::from_ymd,
-    viewed_date::{year_group_range, ViewedDate},
+    utils::from_ymdhm,
+    viewed_date::{ViewedDate, year_group_range},
 };
 
 #[cfg(test)]
@@ -14,17 +14,17 @@ use mockall::automock;
 #[cfg_attr(test, automock)]
 pub trait HasDateConstraints {
     /// Returns true if the given date is forbidden.
-    fn is_day_forbidden(&self, date: &Date) -> bool;
+    fn is_day_forbidden(&self, date: &PrimitiveDateTime) -> bool;
 
     /// Returns true if the entire month described by year_month_info is forbidden.
-    fn is_month_forbidden(&self, year_month_info: &Date) -> bool;
+    fn is_month_forbidden(&self, year_month_info: &PrimitiveDateTime) -> bool;
 
     /// Returns true if the entire given year is forbidden.
-    fn is_year_forbidden(&self, year: i32) -> bool;
+    fn is_year_forbidden(&self, year: &PrimitiveDateTime) -> bool;
 
     /// Returns true if the entire group of years including the given year is forbidden.
     /// A group of years are inclusive intervals [1980, 1999], [2000, 2019], [2020, 2039], ...
-    fn is_year_group_forbidden(&self, year: i32) -> bool;
+    fn is_year_group_forbidden(&self, year: &PrimitiveDateTime) -> bool;
 }
 
 /// Date constraints configuration
@@ -33,43 +33,43 @@ pub trait HasDateConstraints {
 #[builder(default)]
 #[builder(build_fn(validate = "Self::validate"))]
 pub struct DateConstraints {
-    /// inclusive minimal date constraint
-    /// the earliest date that can be selected
-    min_date: Option<Date>,
+    /// Inclusive minimal datetime constraint
+    /// the earliest datetime that can be selected
+    min_datetime: Option<PrimitiveDateTime>,
 
-    /// inclusive maximal date constraint
-    /// the latest date that can be selected
-    max_date: Option<Date>,
+    /// Inclusive maximal datetime constraint
+    /// the latest datetime that can be selected
+    max_datetime: Option<PrimitiveDateTime>,
 
-    /// disabled weekdays, that should not be selectable
+    /// Disabled weekdays, that should not be selectable
     disabled_weekdays: HashSet<Weekday>,
 
-    /// entire completely disabled months in every year
+    /// Entire completely disabled months in every year
     disabled_months: HashSet<Month>,
 
-    /// entire completely disabled years
+    /// Entire completely disabled years
     disabled_years: HashSet<i32>,
 
-    /// disabled monthly periodically repeating dates, so it is just a day number
+    /// Disabled monthly periodically repeating dates, so it is just a day number
     /// starting from 1 for the first day of the month
     /// if unique dates in a certain year should not be selectable use `disabled_unique_dates`
     disabled_monthly_dates: HashSet<u8>,
 
-    /// disabled yearly periodically repeating dates that should not be selectable,
+    /// Disabled yearly periodically repeating dates that should not be selectable,
     /// if unique dates in a certain year should not be selectable use `disabled_unique_dates`
-    /// it is a `Vec` since we need to iterate over it anyway, since we hae no MonthDay type
+    /// it is a `Vec` since we need to iterate over it anyway, since we have no MonthDay type
     disabled_yearly_dates: Vec<Date>,
 
-    /// disabled unique dates with a specific year, month and day that should not be selectable,
+    /// Disabled unique dates with a specific year, month and day that should not be selectable,
     /// if some periodically repeated dates should not be selectable use the correct option
     disabled_unique_dates: HashSet<Date>,
 }
 
 impl DateConstraintsBuilder {
     pub fn validate(&self) -> Result<(), String> {
-        if let (Some(min_date), Some(max_date)) = (self.min_date, self.max_date) {
-            if min_date > max_date {
-                return Err("min_date must be earlier or exactly at max_date".into());
+        if let (Some(min_datetime), Some(max_datetime)) = (self.min_datetime, self.max_datetime) {
+            if min_datetime > max_datetime {
+                return Err("min_datetime must be earlier or exactly at max_datetime".into());
             }
         }
         Ok(())
@@ -89,15 +89,17 @@ cfg_if::cfg_if! {
 }
 
 impl HasDateConstraints for DateConstraints {
-    fn is_day_forbidden(&self, date: &Date) -> bool {
-        self.min_date.map_or(false, |min_date| &min_date > date)
-            || self.max_date.map_or(false, |max_date| &max_date < date)
-            || self.disabled_weekdays.contains(&date.weekday())
+    fn is_day_forbidden(&self, datetime: &PrimitiveDateTime) -> bool {
+        let date = datetime.date();
+        self.min_datetime
+            .map_or(false, |min_datetime| &min_datetime > datetime)
             || self
-                .disabled_months
-                .contains(&date.month())
+                .max_datetime
+                .map_or(false, |max_datetime| &max_datetime < datetime)
+            || self.disabled_weekdays.contains(&date.weekday())
+            || self.disabled_months.contains(&date.month())
             || self.disabled_years.contains(&date.year())
-            || self.disabled_unique_dates.contains(date)
+            || self.disabled_unique_dates.contains(&date)
             || self.disabled_monthly_dates.contains(&date.day())
             || self
                 .disabled_yearly_dates
@@ -105,21 +107,43 @@ impl HasDateConstraints for DateConstraints {
                 .any(|disabled| disabled.day() == date.day() && disabled.month() == date.month())
     }
 
-    fn is_month_forbidden(&self, year_month_info: &Date) -> bool {
-        self.disabled_years.contains(&year_month_info.year())
-            || self
-                .disabled_months
-                .contains(&year_month_info.month())
-            || year_month_info.dates_in_month().iter().all(|date| self.is_day_forbidden(&date))
+    fn is_month_forbidden(&self, year_month_info: &PrimitiveDateTime) -> bool {
+        let date = year_month_info.date();
+        self.disabled_years.contains(&date.year())
+            || self.disabled_months.contains(&date.month())
+            || year_month_info
+                .dates_in_month()
+                .iter()
+                .all(|datetime| self.is_day_forbidden(&datetime))
     }
 
-    fn is_year_forbidden(&self, year: i32) -> bool {
-        self.disabled_years.contains(&year)
-            || (1..=12u8).all(|month| self.is_month_forbidden(&from_ymd(year, month, 1)))
+    fn is_year_forbidden(&self, year: &PrimitiveDateTime) -> bool {
+        let date = year.date();
+        let time = year.time();
+        self.disabled_years.contains(&date.year())
+            || (1..=12u8).all(|month| {
+                self.is_month_forbidden(&from_ymdhm(
+                    date.year(),
+                    month,
+                    date.day(),
+                    time.hour(),
+                    time.minute(),
+                ))
+            })
     }
 
-    fn is_year_group_forbidden(&self, year: i32) -> bool {
-        year_group_range(year).all(|year| self.is_year_forbidden(year))
+    fn is_year_group_forbidden(&self, year: &PrimitiveDateTime) -> bool {
+        let date = year.date();
+        let time = year.time();
+        year_group_range(date.year()).all(|year| {
+            self.is_year_forbidden(&from_ymdhm(
+                year,
+                date.month() as u8,
+                date.day(),
+                time.hour(),
+                time.minute(),
+            ))
+        })
     }
 }
 
@@ -127,101 +151,102 @@ impl HasDateConstraints for DateConstraints {
 mod tests {
     use super::*;
     use crate::{
-        rstest_utils::create_date,
+        rstest_utils::create_datetime,
+        utils::from_ymd,
         viewed_date::{DayNumber, MonthNumber, YearNumber},
     };
-    use time::Duration;
     use rstest::*;
+    use time::{Duration, Time};
 
     #[rstest(
-        tested_date, //
-        case(create_date(1, 12, 25)),
-        case(create_date(3000, 3, 22)),
+        tested_date,
+        case(create_datetime(1, 12, 25, 0, 0)),
+        case(create_datetime(3000, 3, 22, 0, 0))
     )]
-    fn is_day_forbidden_default_no_bounds(tested_date: Date) {
+    fn is_day_forbidden_default_no_bounds(tested_date: PrimitiveDateTime) {
         assert!(!DateConstraints::default().is_day_forbidden(&tested_date))
     }
 
     #[rstest(
-        tested_date, //
-        case(create_date(1, 12, 25)),
-        case(create_date(3000, 3, 22)),
+        tested_date,
+        case(create_datetime(1, 12, 25, 0, 0)),
+        case(create_datetime(3000, 3, 22, 0, 0))
     )]
-    fn is_month_forbidden_default_no_bounds(tested_date: Date) {
+    fn is_month_forbidden_default_no_bounds(tested_date: PrimitiveDateTime) {
         assert!(!DateConstraints::default().is_month_forbidden(&tested_date))
     }
 
     #[rstest(
-        tested_year, //
-        case(1),
-        case(3000),
+        tested_year,
+        case(create_datetime(1, 12, 25, 0, 0)),
+        case(create_datetime(3000, 3, 22, 0, 0))
     )]
-    fn is_year_forbidden_default_no_bounds(tested_year: YearNumber) {
-        assert!(!DateConstraints::default().is_year_forbidden(tested_year))
+    fn is_year_forbidden_default_no_bounds(tested_year: PrimitiveDateTime) {
+        assert!(!DateConstraints::default().is_year_forbidden(&tested_year))
     }
 
     #[test]
     fn picker_config_min_date_greater_than_max_date() {
-        let date = from_ymd(2020, 10, 15);
+        let datetime = from_ymdhm(2020, 10, 15, 0, 0);
         let config = DateConstraintsBuilder::default()
-            .min_date(date.clone())
-            .max_date(date.clone() - Duration::days(1))
+            .min_datetime(datetime.clone())
+            .max_datetime(datetime.clone() - Duration::days(1))
             .build();
         assert!(config.is_err());
         assert_eq!(
             config.unwrap_err().to_string(),
-            "min_date must be earlier or exactly at max_date"
+            "min_datetime must be earlier or exactly at max_datetime"
         );
     }
 
     #[test]
     fn picker_config_min_date_equals_max_date() {
-        let date = from_ymd(2020, 10, 15);
+        let datetime = from_ymdhm(2020, 10, 15, 0, 0);
         let config = DateConstraintsBuilder::default()
-            .min_date(date.clone())
-            .max_date(date.clone())
+            .min_datetime(datetime.clone())
+            .max_datetime(datetime.clone())
             .build();
         assert!(config.is_ok());
     }
 
     #[test]
     fn is_day_forbidden_at_min_date_allowed() {
-        let date = from_ymd(2020, 10, 15);
+        let datetime = from_ymdhm(2020, 10, 15, 0, 0);
         let config = DateConstraintsBuilder::default()
-            .min_date(date.clone())
+            .min_datetime(datetime.clone())
             .build()
             .unwrap();
-        assert!(!config.is_day_forbidden(&date))
+        assert!(!config.is_day_forbidden(&datetime))
     }
 
     #[test]
     fn is_day_forbidden_before_min_date_not_allowed() {
-        let date = from_ymd(2020, 10, 15);
+        let datetime = from_ymdhm(2020, 10, 15, 0, 0);
         let config = DateConstraintsBuilder::default()
-            .min_date(date.clone())
+            .min_datetime(datetime.clone())
             .build()
             .unwrap();
-        assert!(config.is_day_forbidden(&(date - Duration::days(1))))
+        assert!(config.is_day_forbidden(&(datetime - Duration::days(1))))
     }
 
     #[test]
     fn is_day_forbidden_at_max_date_allowed() {
-        let date = from_ymd(2020, 10, 15);
+        let datetime = from_ymdhm(2020, 10, 15, 0, 0);
         let config = DateConstraintsBuilder::default()
-            .max_date(date.clone())
+            .max_datetime(datetime.clone())
             .build()
             .unwrap();
-        assert!(!config.is_day_forbidden(&date))
+        assert!(!config.is_day_forbidden(&datetime))
     }
 
     #[test]
     fn is_day_forbidden_after_max_date_not_allowed() {
-        let date = from_ymd(2020, 10, 15);
+        let datetime = from_ymdhm(2020, 10, 15, 0, 0);
         let config = DateConstraintsBuilder::default()
-            .max_date(date.clone())
+            .max_datetime(datetime.clone())
             .build()
             .unwrap();
-        assert!(config.is_day_forbidden(&(date + Duration::days(1))))
+        assert!(config.is_day_forbidden(&(datetime + Duration::days(1))))
     }
 
     #[rstest(
@@ -238,9 +263,10 @@ mod tests {
             .disabled_weekdays([disabled_weekday].iter().cloned().collect())
             .build()
             .unwrap();
-        assert!(config.is_day_forbidden(
-            &Date::from_iso_week_date(year, week, disabled_weekday).expect("invalid date")
-        ));
+        assert!(config.is_day_forbidden(&PrimitiveDateTime::new(
+            Date::from_iso_week_date(year, week, disabled_weekday).expect("invalid date"),
+            Time::from_hms(0, 0, 0).expect("invalid time"),
+        )));
     }
 
     #[rstest(
@@ -257,7 +283,7 @@ mod tests {
             .disabled_months([disabled_month].iter().cloned().collect())
             .build()
             .unwrap();
-        assert!(config.is_day_forbidden(&from_ymd(year, disabled_month as u8, day)))
+        assert!(config.is_day_forbidden(&from_ymdhm(year, disabled_month as u8, day, 0, 0)))
     }
 
     #[rstest(
@@ -274,14 +300,14 @@ mod tests {
             .disabled_years([disabled_year].iter().cloned().collect())
             .build()
             .unwrap();
-        assert!(config.is_day_forbidden(&from_ymd(disabled_year, month, day)))
+        assert!(config.is_day_forbidden(&from_ymdhm(disabled_year, month, day, 0, 0)))
     }
 
     #[test]
     fn is_day_forbidden_disabled_unique_dates_not_allowed() {
-        let date = from_ymd(2020, 1, 16);
+        let date = from_ymdhm(2020, 1, 16, 0, 0);
         let config = DateConstraintsBuilder::default()
-            .disabled_unique_dates([date].iter().cloned().collect())
+            .disabled_unique_dates([date.date()].iter().cloned().collect())
             .build()
             .unwrap();
         assert!(config.is_day_forbidden(&date))
@@ -294,7 +320,7 @@ mod tests {
             .disabled_unique_dates([date].iter().cloned().collect())
             .build()
             .unwrap();
-        assert!(!config.is_day_forbidden(&from_ymd(2021, 1, 16)))
+        assert!(!config.is_day_forbidden(&from_ymdhm(2021, 1, 16, 0, 0)))
     }
 
     #[rstest(
@@ -314,7 +340,7 @@ mod tests {
             .disabled_yearly_dates(vec![disabled_yearly_date])
             .build()
             .unwrap();
-        assert!(config.is_day_forbidden(&from_ymd(year_in_input, month, day)))
+        assert!(config.is_day_forbidden(&from_ymdhm(year_in_input, month, day, 0, 0)))
     }
 
     #[rstest(
@@ -331,7 +357,7 @@ mod tests {
             .disabled_monthly_dates([day].iter().cloned().collect())
             .build()
             .unwrap();
-        assert!(config.is_day_forbidden(&from_ymd(year, month, day)))
+        assert!(config.is_day_forbidden(&from_ymdhm(year, month, day, 0, 0)))
     }
 
     #[rstest(
@@ -348,7 +374,7 @@ mod tests {
             .disabled_months([disabled_month].iter().cloned().collect())
             .build()
             .unwrap();
-        assert!(config.is_month_forbidden(&from_ymd(year, disabled_month as u8, day)))
+        assert!(config.is_month_forbidden(&from_ymdhm(year, disabled_month as u8, day, 0, 0)))
     }
 
     #[rstest(
@@ -365,7 +391,7 @@ mod tests {
             .disabled_years([disabled_year].iter().cloned().collect())
             .build()
             .unwrap();
-        assert!(config.is_month_forbidden(&from_ymd(disabled_year, month, day)))
+        assert!(config.is_month_forbidden(&from_ymdhm(disabled_year, month, day, 0, 0)))
     }
 
     #[rstest(
@@ -376,7 +402,7 @@ mod tests {
             .disabled_years([disabled_year].iter().cloned().collect())
             .build()
             .unwrap();
-        assert!(config.is_year_forbidden(disabled_year))
+        assert!(config.is_year_forbidden(&from_ymdhm(disabled_year, 1, 1, 0, 0)))
     }
 
     #[rstest(
@@ -387,6 +413,6 @@ mod tests {
             .disabled_years(year_group_range(disabled_year_group).collect())
             .build()
             .unwrap();
-        assert!(config.is_year_group_forbidden(disabled_year_group))
+        assert!(config.is_year_group_forbidden(&from_ymdhm(disabled_year_group, 1, 1, 0, 0)))
     }
 }
