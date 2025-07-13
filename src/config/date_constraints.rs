@@ -1,6 +1,6 @@
 use derive_builder::Builder;
 use std::collections::HashSet;
-use time::{Date, Month, PrimitiveDateTime, Weekday};
+use time::{Date, Duration, Month, PrimitiveDateTime, Time, Weekday};
 
 use crate::{
     utils::from_ymdhm,
@@ -13,6 +13,9 @@ use mockall::automock;
 /// Trait that can be implemented to create your own date constraints.
 #[cfg_attr(test, automock)]
 pub trait HasDateConstraints {
+    /// Returns true if the given datetime is forbidden.
+    fn is_datetime_forbidden(&self, date: &PrimitiveDateTime) -> bool;
+
     /// Returns true if the given date is forbidden.
     fn is_day_forbidden(&self, date: &PrimitiveDateTime) -> bool;
 
@@ -89,7 +92,7 @@ cfg_if::cfg_if! {
 }
 
 impl HasDateConstraints for DateConstraints {
-    fn is_day_forbidden(&self, datetime: &PrimitiveDateTime) -> bool {
+    fn is_datetime_forbidden(&self, datetime: &PrimitiveDateTime) -> bool {
         let date = datetime.date();
         self.min_datetime
             .map_or(false, |min_datetime| &min_datetime > datetime)
@@ -105,6 +108,15 @@ impl HasDateConstraints for DateConstraints {
                 .disabled_yearly_dates
                 .iter()
                 .any(|disabled| disabled.day() == date.day() && disabled.month() == date.month())
+    }
+
+    fn is_day_forbidden(&self, datetime: &PrimitiveDateTime) -> bool {
+        let min = PrimitiveDateTime::new(datetime.date(), Time::MIDNIGHT);
+        let max = PrimitiveDateTime::new(
+            datetime.date().next_day().unwrap_or(Date::MAX),
+            Time::MIDNIGHT,
+        ) - Duration::seconds(1);
+        self.is_datetime_forbidden(&min) && self.is_datetime_forbidden(&max)
     }
 
     fn is_month_forbidden(&self, year_month_info: &PrimitiveDateTime) -> bool {
@@ -160,6 +172,15 @@ mod tests {
 
     #[rstest(
         tested_date,
+        case(create_datetime(1, 12, 25, 12, 12)),
+        case(create_datetime(3000, 3, 22, 23, 55))
+    )]
+    fn is_datetime_forbidden_default_no_bounds(tested_date: PrimitiveDateTime) {
+        assert!(!DateConstraints::default().is_datetime_forbidden(&tested_date))
+    }
+
+    #[rstest(
+        tested_date,
         case(create_datetime(1, 12, 25, 0, 0)),
         case(create_datetime(3000, 3, 22, 0, 0))
     )]
@@ -207,6 +228,46 @@ mod tests {
             .max_datetime(datetime.clone())
             .build();
         assert!(config.is_ok());
+    }
+
+    #[test]
+    fn is_datetime_forbidden_at_min_date_allowed() {
+        let datetime = from_ymdhm(2020, 10, 15, 23, 55);
+        let config = DateConstraintsBuilder::default()
+            .min_datetime(datetime.clone())
+            .build()
+            .unwrap();
+        assert!(!config.is_datetime_forbidden(&datetime))
+    }
+
+    #[test]
+    fn is_datetime_forbidden_before_min_date_not_allowed() {
+        let datetime = from_ymdhm(2020, 10, 15, 23, 55);
+        let config = DateConstraintsBuilder::default()
+            .min_datetime(datetime.clone())
+            .build()
+            .unwrap();
+        assert!(config.is_datetime_forbidden(&(datetime - Duration::minutes(1))))
+    }
+
+    #[test]
+    fn is_datetime_forbidden_at_max_date_allowed() {
+        let datetime = from_ymdhm(2020, 10, 15, 23, 55);
+        let config = DateConstraintsBuilder::default()
+            .max_datetime(datetime.clone())
+            .build()
+            .unwrap();
+        assert!(!config.is_datetime_forbidden(&datetime))
+    }
+
+    #[test]
+    fn is_datetime_forbidden_after_max_date_not_allowed() {
+        let datetime = from_ymdhm(2020, 10, 15, 23, 55);
+        let config = DateConstraintsBuilder::default()
+            .max_datetime(datetime.clone())
+            .build()
+            .unwrap();
+        assert!(config.is_datetime_forbidden(&(datetime + Duration::minutes(1))))
     }
 
     #[test]

@@ -32,6 +32,10 @@ impl<T> HasDateConstraints for PickerConfig<T>
 where
     T: HasDateConstraints + std::default::Default + Clone,
 {
+    fn is_datetime_forbidden(&self, date: &PrimitiveDateTime) -> bool {
+        self.date_constraints.is_datetime_forbidden(date)
+    }
+
     fn is_day_forbidden(&self, date: &PrimitiveDateTime) -> bool {
         self.date_constraints.is_day_forbidden(date)
     }
